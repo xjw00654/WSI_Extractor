@@ -1,22 +1,22 @@
 import os
-import openslide
 import math
+import random
 import multiprocessing
-from .utils import *
-from math import ceil
-from PIL import Image
 from time import time
+
+import openslide
+from .utils import *
 
 
 class BasicLoader:
     def __init__(self, slide_folder, save_folder,
-                 target_size=400, ds_rate=0, nProcs=4, overlap=False, default_ol_sz=300,
+                 target_size=400, ds_rate=0, n_procs=4, overlap=False, default_ol_sz=300,
                  rm_blank=True, blank_range=(200, 225), rm_black=True, black_range=10):
         self.slide_folder = slide_folder
         self.save_folder = save_folder
         self.ds_rate = ds_rate
         self.patch_size = target_size
-        self.nProcs = nProcs if 0 <= nProcs < 10 else 3
+        self.nProcs = n_procs if 0 <= n_procs < 10 else 3
         self.overlap = overlap
         self.default_ol_sz = default_ol_sz
         self.rm_blank = rm_blank
@@ -35,7 +35,7 @@ class BasicLoader:
             print(f'  Can not find save folder, will create {self.save_folder}.')
 
     def get_rows_columns(self, width, height):
-        if width * height <=0:
+        if width * height <= 0:
             raise ValueError('Got wrong wdith and height value of slide.')
         if self.overlap:
             rows, columns = width // self.default_ol_sz, height // self.default_ol_sz
@@ -53,8 +53,22 @@ class BasicLoader:
 
 
 class TileSaving(BasicLoader):
-    def __init__(self):
-        super(BasicLoader, self).__init__()
+    def __init__(self, slide_folder, save_folder,
+                 target_size=400, ds_rate=0, n_procs=4, overlap=False, default_ol_sz=300,
+                 rm_blank=True, blank_range=(200, 225), rm_black=True, black_range=10):
+        super(BasicLoader, self).__init__(
+            slide_folder=slide_folder,
+            save_folder=save_folder,
+            target_size=target_size,
+            ds_rate=ds_rate,
+            n_procs=n_procs,
+            overlap=overlap,
+            default_ol_sz=default_ol_sz,
+            rm_blank=rm_blank,
+            rm_black=rm_black,
+            blank_range=blank_range,
+            black_range=black_range,
+        )
         # The following private variables will change with loop
         self.sp = None  # slide pointer
         self.name = None  # slide name
@@ -83,9 +97,9 @@ class TileSaving(BasicLoader):
         print('done')
         return rows, columns, slide_save_path, ds_scale, time_flag
 
-    def process_target(self, start_ncol, cols_per_process):
-        enc_ncol = min(start_ncol + int(cols_per_process), self.rows)
-        for r in range(start_ncol, enc_ncol):
+    def process_target(self, start_n, cols_per_process, save=True):
+        end_ncol = min(start_n + int(cols_per_process), self.rows)
+        for r in range(start_n, end_ncol):
             for c in range(self.columns):
                 col_loc = r * self.columns + c
                 batch_id = col_loc // self.columns
@@ -97,36 +111,39 @@ class TileSaving(BasicLoader):
                 start_rc = [target_size * r * self.ds_scale, target_size * c * self.ds_scale]
 
                 patch = self.get_patch(self.sp, start_rc)
-                patch_name = f'{os.path.splitext(self.name)[0]}_{batch_id}_{c}.jpg'
-                if self.rm_black and self.rm_blank:
-                    check_valid_save_patch(patch, os.path.join(batch_save_path, patch_name),
-                                           self.black_range, self.blank_range)
+                if save:
+                    patch_name = f'{os.path.splitext(self.name)[0]}_{batch_id}_{c}.jpg'
+                    if self.rm_black and self.rm_blank:
+                        check_valid_save_patch(patch, os.path.join(batch_save_path, patch_name),
+                                               self.black_range, self.blank_range)
+                    else:
+                        save_patch(patch, os.path.join(batch_save_path, patch_name))
                 else:
-                    save_patch(patch, os.path.join(batch_save_path, patch_name))
-        print(f'  finished {start_ncol} - {enc_ncol} columns, used time: {time() - self.time_flag} s.')
+                    yield patch
+        print(f'  finished {start_n} - {end_ncol} columns, used time: {time() - self.time_flag} s.')
 
     def tiling(self):
         for sp, name in self.slide_pointer_generator():
             self.sp, self.name = sp, name
             self.rows, self.columns, self.slide_save_path, self.ds_scale, self.time_flag = self.slide_info()
 
-            columns_per_process = math.ceil(self.rows / self.nProcs)
-            process_start_ncol_list = [n_col for n_col in range(self.rows) if n_col % columns_per_process == 0]
+            cols_per_process = math.ceil(self.rows / self.nProcs)
+            process_start_ncol_list = [n_col for n_col in range(self.rows) if n_col % cols_per_process == 0]
             if len(process_start_ncol_list) != self.nProcs:
                 assert len(process_start_ncol_list) < self.nProcs
                 print(f'  self-Adaptive modification of nProcs, '
                       f'default: {self.nProcs} process, used: {len(process_start_ncol_list)} process, '
-                      f'max {columns_per_process} columns per process.')
+                      f'max {cols_per_process} columns per process.')
                 self.nProcs = len(process_start_ncol_list)
             else:
                 print('Use default settings, used %d process, %d columns per process.'
-                      % (self.nProcs, columns_per_process))
+                      % (self.nProcs, cols_per_process))
             assert len(process_start_ncol_list) == self.nProcs
 
             process_pointer = [None] * self.nProcs
             for proc in range(self.nProcs):
                 process_pointer[proc] = multiprocessing.Process(
-                        target=self.process_target, args=(process_start_ncol_list[proc], columns_per_process,))
+                    target=self.process_target, args=(process_start_ncol_list[proc], cols_per_process,))
                 process_pointer[proc].start()
             for proc in range(self.nProcs):
                 process_pointer[proc].join()
@@ -134,12 +151,65 @@ class TileSaving(BasicLoader):
             self.restore_self_vars()
 
 
-class TestDataGenerator(BasicLoader):
-    def __init__(self):
-        super(BasicLoader, self).__init__()
+class SequenceGenerator(TileSaving):
+    def __init__(self, slide_folder, target_size=400, ds_rate=0, n_procs=4, overlap=False, default_ol_sz=300,
+                 rm_blank=True, blank_range=(200, 225), rm_black=True, black_range=10):
+        super(TileSaving, self).__init__(
+            slide_folder=slide_folder,
+            save_folder=None,
+            target_size=target_size,
+            ds_rate=ds_rate,
+            n_procs=n_procs,
+            overlap=overlap,
+            default_ol_sz=default_ol_sz,
+            rm_blank=rm_blank,
+            rm_black=rm_black,
+            blank_range=blank_range,
+            black_range=black_range
+        )
 
-    def sequence_generator(self):
-        raise NotImplementedError
+    def get_item_slide_generator(self, item):
 
-    def random_generator(self):
-        raise NotImplementedError
+
+class TestDataGenerator(TileSaving):
+    def __init__(self, slide_folder, target_size=400, ds_rate=0, n_procs=4, overlap=False, default_ol_sz=300,
+                 rm_blank=True, blank_range=(200, 225), rm_black=True, black_range=10):
+        super(TileSaving, self).__init__(
+            slide_folder=slide_folder,
+            save_folder=None,
+            target_size=target_size,
+            ds_rate=ds_rate,
+            n_procs=n_procs,
+            overlap=overlap,
+            default_ol_sz=default_ol_sz,
+            rm_blank=rm_blank,
+            rm_black=rm_black,
+            blank_range=blank_range,
+            black_range=black_range
+        )
+
+    def get_patch_generator_in_sequence(self):
+        """
+        This function will generate patch generator by slides in sequence(column)
+        :return: patch generator
+        """
+
+        for idx, (sp, name) in enumerate(self.slide_pointer_generator()):
+            self.sp, self.name = sp, name
+            self.rows, self.columns, self.slide_save_path, self.ds_scale, self.time_flag = self.slide_info()
+            yield self.process_target(0, self.rows, save=False)
+
+    def get_patch_generator_randomly(self, seed=None):
+        """
+        This function will generate patch generation randomly(column)
+        :param seed: random seeds
+        :return: patches of random column
+        """
+
+        for idx, (sp, name) in enumerate(self.slide_pointer_generator()):
+            self.sp, self.name = sp, name
+            self.rows, self.columns, self.slide_save_path, self.ds_scale, self.time_flag = self.slide_info()
+
+            randomperm = sorted((i for i in range(self.rows)))
+            for c in randomperm:
+                yield self.process_target(c, 1, save=False)
