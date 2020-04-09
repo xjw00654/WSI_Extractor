@@ -22,8 +22,8 @@ TileSaving(slide_folder, save_folder, n_procs=4, target_size=512, ds_rate=0, bla
 - For get patch generation (using in the inference code) 
 
 ``` python
-loaderuence = TestDataGenerator(slide_folder).get_patch_generator(mode='sequence')
-for patch_gen, idx in loaderuence:
+loader_sequence = TestDataGenerator(slide_folder).get_patch_generator(mode='sequence')
+for patch_gen, idx in loader_sequence:
     for patch, c, r in patch_gen:
         if patch == -1:
             # patch is black
