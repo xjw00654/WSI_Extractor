@@ -25,47 +25,48 @@ def check_path_valid(path, create=False):
         return False
 
 
-def check_patch_black(patch_mean, black_range):
-    if patch_mean <= black_range:
+def check_patch_black(patch, black_thresh):
+    patch = np.array(patch).mean()
+    if patch <= black_thresh:
         return False
     else:
         return True
 
 
-def check_patch_blank(patch_mean, blank_range):
-    if blank_range[0] <= patch_mean <= blank_range[1]:
+def check_patch_blank(patch, blank_range):
+    patch = np.array(patch).mean()
+    if blank_range[0] <= patch <= blank_range[1]:
         return False
     else:
         return True
 
 
-def check_patch_valid(patch, black_range, blank_range):
-    if len(black_range) != 2:
-        raise ValueError(f'\'black_range\' must have 2 elements, current {black_range}')
-    elif len(blank_range) != 1:
-        raise ValueError(f'\'blank_range\' must have one elements, current {blank_range}')
-    elif not 0 <= black_range[0] <= 255 and not 0 <= black_range[0] <= 255:
-        raise ValueError(f'\'black_range\' must be 2 \'uint8\' format number.')
-    elif not 0 <= blank_range <= 255:
-        raise ValueError(f'\'blank_range\' must be a \'uint8\' format number.')
+def check_patch_valid(patch, black_thresh, blank_range):
+    if not type(black_thresh) is int:
+        raise ValueError(f'\'black_thresh\' must have one elements, current {black_thresh}')
+    elif len(blank_range) != 2:
+        raise ValueError(f'\'blank_range\' must have 2 elements, current {blank_range}')
+    elif not 0 <= blank_range[0] <= 255 and not 0 <= blank_range[0] <= 255:
+        raise ValueError(f'\'blank_range\' must be 2 \'uint8\' format number.')
+    elif not 0 <= black_thresh <= 255:
+        raise ValueError(f'\'black_thresh\' must be a \'uint8\' format number.')
 
-    patch_array = np.array(patch.convert("RGB"))
-    patch_mean = patch_array.mean()
-    if not check_patch_black(patch_mean, black_range):
+    patch = patch.convert("RGB")
+    if not check_patch_black(patch, black_thresh):
         return -1
-    elif not check_patch_blank(patch_mean, blank_range):
+    elif not check_patch_blank(patch, blank_range):
         return -2
     else:
         return True
 
 
-def check_valid_save_patch(patch, save_path, black_range, blank_range, dummy_print=True):
-    flag = check_patch_valid(patch, black_range, blank_range)
+def check_valid_save_patch(patch, save_path, black_thresh, blank_range, dummy_print=True):
+    flag = check_patch_valid(patch, black_thresh, blank_range)
     if flag == -1:
-        if dummy_print:
+        if not dummy_print:
             print(f'  {os.path.basename(save_path)} is blaCk, will pass.')
     elif flag == -2:
-        if dummy_print:
+        if not dummy_print:
             print(f'  {os.path.basename(save_path)} is blaNk, will pass.')
     elif flag:
         patch.convert("RGB").save(save_path)
