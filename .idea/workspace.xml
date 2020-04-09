@@ -11,11 +11,12 @@
     <option name="RECENT_TEMPLATES">
       <list>
         <option value="Python Script" />
+        <option value="Setup Script" />
       </list>
     </option>
   </component>
   <component name="Git.Settings">
-    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/../../.." />
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="ProjectId" id="1aGGsPtZjnrBMd6uUAIherVy9EI" />
   <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
@@ -42,6 +43,8 @@
       <updated>1586354722030</updated>
       <workItem from="1586354726745" duration="8106000" />
       <workItem from="1586362857062" duration="2896000" />
+      <workItem from="1586365902506" duration="352000" />
+      <workItem from="1586394228413" duration="8167000" />
     </task>
     <servers />
   </component>
@@ -49,13 +52,17 @@
     <option name="version" value="1" />
   </component>
   <component name="WindowStateProjectService">
+    <state x="1059" y="406" key="FileChooserDialogImpl" timestamp="1586365925140">
+      <screen x="0" y="40" width="2560" height="1400" />
+    </state>
+    <state x="1059" y="406" key="FileChooserDialogImpl/0.40.2560.1400@0.40.2560.1400" timestamp="1586365925140" />
     <state x="1057" y="337" key="SettingsEditor" timestamp="1586354786173">
       <screen x="0" y="40" width="2560" height="1400" />
     </state>
     <state x="1057" y="337" key="SettingsEditor/0.40.2560.1400@0.40.2560.1400" timestamp="1586354786173" />
-    <state x="1055" y="484" width="672" height="678" key="search.everywhere.popup" timestamp="1586355399450">
+    <state x="1055" y="484" width="672" height="678" key="search.everywhere.popup" timestamp="1586402489831">
       <screen x="0" y="40" width="2560" height="1400" />
     </state>
-    <state x="1055" y="484" width="672" height="678" key="search.everywhere.popup/0.40.2560.1400@0.40.2560.1400" timestamp="1586355399450" />
+    <state x="1055" y="484" width="672" height="678" key="search.everywhere.popup/0.40.2560.1400@0.40.2560.1400" timestamp="1586402489831" />
   </component>
 </project>
