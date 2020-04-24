@@ -139,7 +139,7 @@ class TileSaving(BasicLoader):
             p = [None] * self.n_procs
             for proc in range(self.n_procs):
                 p[proc] = multiprocessing.Process(
-                    target=self._process_target, args=(process_start_ncol_list[proc], cols_per_process, ))
+                    target=self._process_target, args=(process_start_ncol_list[proc], cols_per_process,))
                 p[proc].start()
             for proc in range(self.n_procs):
                 p[proc].join()
@@ -181,19 +181,77 @@ class TestDataGenerator(TileSaving):
                 else:
                     yield patch, r, c
 
+    def _generate_generator_mp(self):
+
+        def process(q, start_n, cols_per_process):
+            end_ncol = min(start_n + int(cols_per_process), self.rows)
+            for r in range(start_n, end_ncol):
+                for c in range(self.columns):
+                    col_loc = r * self.columns + c
+                    batch_id = col_loc // self.columns
+
+                    batch_save_path = os.path.join(self.slide_save_path, f'batch{batch_id}')
+                    check_path_valid(batch_save_path, create=True)
+
+                    target_size = self.default_ol_sz if self.overlap else self.patch_size
+                    start_rc = [target_size * r * self.ds_scale, target_size * c * self.ds_scale]
+
+                    patch = self.get_patch(self.sp, start_rc)
+                    patch_name = f'{os.path.splitext(self.name)[0]}_{batch_id}_{c}.jpg'
+                    if self.rm_black and self.rm_blank:
+                        check_valid_save_patch(patch, os.path.join(batch_save_path, patch_name),
+                                               self.black_thresh, self.blank_range)
+                    else:
+                        q.put((patch, r, c))
+            q.put(None)
+
+            cols_per_process = math.ceil(self.rows / self.n_procs)
+            process_start_ncol_list = [n_col for n_col in range(self.rows) if n_col % cols_per_process == 0]
+            if len(process_start_ncol_list) != self.n_procs:
+                assert len(process_start_ncol_list) < self.n_procs
+                print(f'  self-Adaptive modification of n_procs, '
+                      f'default: {self.n_procs} process, used: {len(process_start_ncol_list)} process, '
+                      f'max {cols_per_process} columns per process.')
+                self.n_procs = len(process_start_ncol_list)
+            else:
+                print('  Using default settings, used %d process, %d columns per process.'
+                      % (self.n_procs, cols_per_process))
+            assert len(process_start_ncol_list) == self.n_procs
+
+            q = multiprocessing.Queue(maxsize=self.n_procs * (cols_per_process + 1))
+            p = [None] * self.n_procs
+            for proc in range(self.n_procs):
+                p[proc] = multiprocessing.Process(
+                    target=process, args=(q, process_start_ncol_list[proc], cols_per_process,))
+                p[proc].start()
+            for proc in range(self.n_procs):
+                p[proc].join()
+
+            finished_workers = 0
+            while True:
+                (data, r, c) = q.get()
+                if data is None:
+                    finished_workers += 1
+                    if finished_workers == self.n_procs:
+                        break
+                else:
+                    yield data, r, c
+
     def get_patch_generator(self, mode, seed=None):
-        if not (mode == 'random' or mode == 'sequence'):
-            raise TypeError('mode: [random|sequence]')
+        if not (mode == 'random' or mode == 'sequence' or mode == 'mp'):
+            raise TypeError('mode: [random|sequence|mp]')
 
         for idx, (sp, name) in enumerate(self.slide_pointer_generator()):
             self.sp, self.name = sp, name
             self.rows, self.columns, self.slide_save_path, self.ds_scale, self.time_flag = self._slide_info()
             perm = [i for i in range(self.rows)]
-            if mode == 'random':
-                if seed:
+            if mode == 'mp':
+                yield self._generate_generator_mp(), idx
+            else:
+                if mode == 'random':
                     random.seed = seed
-                random.shuffle(perm)
-            yield self._process_target(perm), idx
+                    random.shuffle(perm)
+                yield self._process_target(perm), idx
 
 
 if __name__ == '__main__':
@@ -232,4 +290,15 @@ if __name__ == '__main__':
                 y.append([r_rad, c_rad])
         break
 
-    a = 10
+    loader_randomly = TestDataGenerator(slide_folder).get_patch_generator(mode='mp')
+    for patch_gen_rad, idx in loader_randomly:
+        p, q, y = [], [], []
+        for patch_rad, c_rad, r_rad in patch_gen_rad:
+            if patch_rad == -1:
+                # patch is black
+                p.append([r_rad, c_rad])
+            elif patch_rad == -2:
+                # patch is blank
+                q.append([r_rad, c_rad])
+            else:
+                y.append([r_rad, c_rad])
