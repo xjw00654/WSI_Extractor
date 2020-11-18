@@ -6,6 +6,60 @@ from time import time
 import openslide
 from utils import *
 
+import xml.dom.minidom as xd
+from array import array
+from collections import OrderedDict
+
+
+class CamelyonXmlLoader:
+    def __init__(self, slide_path, xml_path):
+        self.xml_list = get_xml_list(xml_path)
+        self.slide_list = get_slide_names(slide_path)
+        assert check_xml_slide_align(xml_list=self.xml_list, slide_list=self.slide_list), \
+            f'could not find enough annotation .xml file(s) for .tif(f) slide(s)'
+        self.annotation = []
+        self.parse()
+        self.draw_line_on_patches()
+
+    @staticmethod
+    def get_elements_by_tag_name(node, name):
+        return node.getElementsByTagName(name) if node else None
+
+    @staticmethod
+    def get_attribute(node, name):
+        return node.getAttribute(name) if node else ''
+
+    def parse(self):
+        print(f' \nCamelyon XML Parser')
+        print(f'{"-" * 20} \nFind {len(self.xml_list)} slides. \n{"-" * 20}')
+        for xml in self.xml_list:
+            print(f'\nLoaded: {os.path.basename(xml)} ... ')
+            start_time = time()
+            obj = xd.parse(xml)
+            for annotation_obj in obj.getElementsByTagName('Annotation'):
+                obj_name = self.get_attribute(annotation_obj, 'Name')
+                obj_type = self.get_attribute(annotation_obj, 'Type')
+                obj_color = self.get_attribute(annotation_obj, 'Color')
+                x = y = array('f')
+                for coordinate in self.get_elements_by_tag_name(annotation_obj.childNodes[1], 'Coordinate'):
+                    x.append(float(self.get_attribute(coordinate, 'X')))
+                    y.append(float(self.get_attribute(coordinate, 'Y')))
+                self.annotation.append(
+                    OrderedDict({
+                        'Name': obj_name,
+                        'Type': obj_type,
+                        'Color': obj_color,
+                        'X': x,
+                        'Y': y,
+                    })
+                )
+            print(f'  Finished {os.path.basename(xml)}, used time: {time() - start_time: .2f} s')
+        print('\nXML Parse Done.\n')
+
+    def draw_line_on_patches(self):
+        # TODO: draw annotation lines by the coordinates parsed from the xml
+        pass
+
 
 class BasicLoader:
     def __init__(self, slide_folder, save_folder,
@@ -139,7 +193,7 @@ class TileSaving(BasicLoader):
             p = [None] * self.n_procs
             for proc in range(self.n_procs):
                 p[proc] = multiprocessing.Process(
-                    target=self._process_target, args=(process_start_ncol_list[proc], cols_per_process, ))
+                    target=self._process_target, args=(process_start_ncol_list[proc], cols_per_process,))
                 p[proc].start()
             for proc in range(self.n_procs):
                 p[proc].join()
@@ -198,10 +252,14 @@ class TestDataGenerator(TileSaving):
 
 if __name__ == '__main__':
     slide_folder = os.path.join(os.curdir, 'data', 'slide')
+    mask_folder = os.path.join(os.curdir, 'data', 'annotation')
     save_folder = os.path.join(os.curdir, 'data', 'patch')
 
-    # # Testing tiling
-    TileSaving(slide_folder, save_folder, n_procs=4, target_size=512, ds_rate=0, black_thresh=50).tiling()
+    # Get Camelyon mask patches from xml annotation
+    CamelyonXmlLoader(slide_folder, mask_folder)
+
+    # Testing tiling
+    TileSaving(slide_folder, save_folder, n_procs=4, target_size=512, ds_rate=2, black_thresh=50).tiling()
 
     # Testing generator
     loader_sequence = TestDataGenerator(slide_folder).get_patch_generator(mode='sequence')
@@ -232,4 +290,4 @@ if __name__ == '__main__':
                 y.append([r_rad, c_rad])
         break
 
-    a = 10
+    print('ALL OK!')
