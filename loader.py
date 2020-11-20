@@ -11,56 +11,6 @@ from array import array
 from collections import OrderedDict
 
 
-class CamelyonXmlLoader:
-    def __init__(self, slide_path, xml_path):
-        self.xml_list = get_xml_list(xml_path)
-        self.slide_list = get_slide_names(slide_path)
-        assert check_xml_slide_align(xml_list=self.xml_list, slide_list=self.slide_list), \
-            f'could not find enough annotation .xml file(s) for .tif(f) slide(s)'
-        self.annotation = []
-        self.parse()
-        self.draw_line_on_patches()
-
-    @staticmethod
-    def get_elements_by_tag_name(node, name):
-        return node.getElementsByTagName(name) if node else None
-
-    @staticmethod
-    def get_attribute(node, name):
-        return node.getAttribute(name) if node else ''
-
-    def parse(self):
-        print(f' \nCamelyon XML Parser')
-        print(f'{"-" * 20} \nFind {len(self.xml_list)} slides. \n{"-" * 20}')
-        for xml in self.xml_list:
-            print(f'\nLoaded: {os.path.basename(xml)} ... ')
-            start_time = time()
-            obj = xd.parse(xml)
-            for annotation_obj in obj.getElementsByTagName('Annotation'):
-                obj_name = self.get_attribute(annotation_obj, 'Name')
-                obj_type = self.get_attribute(annotation_obj, 'Type')
-                obj_color = self.get_attribute(annotation_obj, 'Color')
-                x = y = array('f')
-                for coordinate in self.get_elements_by_tag_name(annotation_obj.childNodes[1], 'Coordinate'):
-                    x.append(float(self.get_attribute(coordinate, 'X')))
-                    y.append(float(self.get_attribute(coordinate, 'Y')))
-                self.annotation.append(
-                    OrderedDict({
-                        'Name': obj_name,
-                        'Type': obj_type,
-                        'Color': obj_color,
-                        'X': x,
-                        'Y': y,
-                    })
-                )
-            print(f'  Finished {os.path.basename(xml)}, used time: {time() - start_time: .2f} s')
-        print('\nXML Parse Done.\n')
-
-    def draw_line_on_patches(self):
-        # TODO: draw annotation lines by the coordinates parsed from the xml
-        pass
-
-
 class BasicLoader:
     def __init__(self, slide_folder, save_folder,
                  target_size=400, ds_rate=0, n_procs=4, overlap=False, default_ol_sz=300,
@@ -90,7 +40,7 @@ class BasicLoader:
 
     def get_rows_columns(self, width, height):
         if width * height <= 0:
-            raise ValueError('Got wrong wdith and height value of slide.')
+            raise ValueError('Got wrong width and height value of slide.')
         if self.overlap:
             rows, columns = width // self.default_ol_sz, height // self.default_ol_sz
         else:
@@ -104,6 +54,76 @@ class BasicLoader:
     def get_patch(self, pointer, start_rc):
         patch = pointer.read_region(start_rc, self.ds_rate, (self.patch_size, self.patch_size))
         return patch
+
+
+class CamelyonXmlLoader(BasicLoader):
+    def __init__(self, xmls_folder, **kwargs):
+        super(CamelyonXmlLoader, self).__init__(**kwargs)
+        self.xml_folder = xmls_folder
+        self.xml_list = get_xml_list(xmls_folder)
+        assert check_xml_slide_align(xml_list=self.xml_list, slide_list=self.slide_names_list), \
+            f'could not find enough annotation .xml file(s) for .tif(f) slide(s)'
+
+        self.annotations = []
+        self.parse()
+        self.cate_xml_point_annotations()
+
+    @staticmethod
+    def get_elements_by_tag_name(node, name):
+        return node.getElementsByTagName(name) if node else None
+
+    @staticmethod
+    def get_attribute(node, name):
+        return node.getAttribute(name) if node else ''
+
+    def parse(self):
+        print(f' \nCamelyon XML Parser')
+        print(f'{"-" * 20} \nFind {len(self.xml_list)} xmls. \n{"-" * 20}')
+        for i, xml in enumerate(self.xml_list):
+            print(f'\nLoaded: {os.path.basename(xml)} ({i + 1}/{len(self.xml_list)})... ')
+            xml_regions = []
+            start_time = time()
+            obj = xd.parse(xml)
+            for annotation_obj in obj.getElementsByTagName('Annotation'):
+                obj_name = self.get_attribute(annotation_obj, 'Name')
+                obj_type = self.get_attribute(annotation_obj, 'Type')
+                obj_color = self.get_attribute(annotation_obj, 'Color')
+                x = array('f')
+                y = array('f')
+                for coordinate in self.get_elements_by_tag_name(annotation_obj.childNodes[1], 'Coordinate'):
+                    x.append(float(self.get_attribute(coordinate, 'X')))
+                    y.append(float(self.get_attribute(coordinate, 'Y')))
+                xml_regions.append(
+                    OrderedDict({
+                        'Name': obj_name,
+                        'Type': obj_type,
+                        'Color': obj_color,
+                        'X': x,
+                        'Y': y,
+                    })
+                )
+            self.annotations.append((os.path.basename(xml), xml_regions))
+            print(f'  Finished {os.path.basename(xml)}, used time: {time() - start_time: .2f} s')
+        print('\nXML Parse Done.\n')
+
+    def get_slide_size(self, slide_name):
+        slide_pointer = openslide.OpenSlide(os.path.join(self.slide_folder, slide_name + '.tif'))
+        width, height = slide_pointer.level_dimensions[self.ds_rate]
+        return width, height
+
+    def cate_xml_point_annotations(self):
+        # TODO: draw annotation lines by the coordinates parsed from the xml
+        for xml_name, regions in self.annotations:
+            width, height = self.get_slide_size(os.path.splitext(xml_name)[0])
+            rows, columns = self.get_rows_columns(width, height)
+            for region in regions:
+                x, y = region['X'], region['Y']
+                x_idx_bias, y_idx_bias = array('f'), array('f')
+                for e_x, e_y in zip(x, y):
+                    x_idx_bias.append(1. * e_x / self.patch_size)
+                    y_idx_bias.append(1. * e_y / self.patch_size)
+
+                a = 10
 
 
 class TileSaving(BasicLoader):
@@ -256,7 +276,7 @@ if __name__ == '__main__':
     save_folder = os.path.join(os.curdir, 'data', 'patch')
 
     # Get Camelyon mask patches from xml annotation
-    CamelyonXmlLoader(slide_folder, mask_folder)
+    CamelyonXmlLoader(xmls_folder=mask_folder, slide_folder=slide_folder, save_folder=save_folder)
 
     # Testing tiling
     TileSaving(slide_folder, save_folder, n_procs=4, target_size=512, ds_rate=2, black_thresh=50).tiling()
